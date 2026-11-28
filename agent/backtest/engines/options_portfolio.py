@@ -127,6 +127,18 @@ def leg_iv(S: float, K: float, base_iv: float, skew: float, curvature: float) ->
 # --- Option positions ---
 
 
+def _time_until_expiry(
+    expiry: pd.Timestamp, current_date: pd.Timestamp, calendar_tz: Any = None,
+) -> pd.Timedelta:
+    """Use local calendar time for unzoned expiries, instants for zoned ones."""
+    current_date = pd.Timestamp(current_date)
+    if expiry.tz is None:
+        if calendar_tz is not None and current_date.tz is not None:
+            current_date = current_date.tz_convert(calendar_tz)
+        current_date = current_date.tz_localize(None)
+    return expiry - current_date
+
+
 class OptionPosition:
     """A single option leg position.
 
@@ -140,6 +152,7 @@ class OptionPosition:
         entry_price: Theoretical option price at entry.
         entry_date: Entry date string.
         underlying_code: Underlying instrument code.
+        calendar_tz: Underlying calendar zone for expiries without a zone.
 
     Raises:
         ValueError: If ``option_type`` is neither call nor put.
@@ -147,7 +160,7 @@ class OptionPosition:
 
     def __init__(self, option_type: str, strike: float, expiry: str,
                  qty: int, entry_price: float, entry_date: str,
-                 underlying_code: str):
+                 underlying_code: str, *, calendar_tz: Any = None):
         self.option_type = normalise_option_type(option_type)
         self.strike = strike
         self.expiry = pd.Timestamp(expiry)
@@ -155,6 +168,7 @@ class OptionPosition:
         self.entry_price = entry_price
         self.entry_date = entry_date
         self.underlying_code = underlying_code
+        self.calendar_tz = calendar_tz
 
     def time_to_expiry(self, current_date: pd.Timestamp) -> float:
         """Calculate time remaining to expiry in years.
@@ -165,7 +179,7 @@ class OptionPosition:
         Returns:
             Time to expiry in years.
         """
-        days = (self.expiry - current_date).days
+        days = _time_until_expiry(self.expiry, current_date, self.calendar_tz).days
         return max(days / 365.0, 0.0)
 
     def is_expired(self, current_date: pd.Timestamp) -> bool:
@@ -177,7 +191,7 @@ class OptionPosition:
         Returns:
             True if expired.
         """
-        return current_date >= self.expiry
+        return _time_until_expiry(self.expiry, current_date, self.calendar_tz) <= pd.Timedelta(0)
 
     def intrinsic_value(self, spot: float) -> float:
         """Calculate intrinsic value.
@@ -405,6 +419,7 @@ def run_options_backtest(
             action = sig.get("action", "")
             legs = sig.get("legs", [])
             underlying = sig.get("underlying", codes[0] if codes else "")
+            calendar_tz = data_map[underlying].index.tz if underlying in data_map else None
 
             spot = spot_prices.get(underlying, 0.0)
             iv_val = ivs.get(underlying, default_iv)
@@ -419,7 +434,7 @@ def run_options_backtest(
                 qty = leg.get("qty", 1)
 
                 expiry_ts = pd.Timestamp(expiry)
-                T = max((expiry_ts - ts).days / 365.0, 0.001)
+                T = max(_time_until_expiry(expiry_ts, ts, calendar_tz).days / 365.0, 0.001)
 
                 adj_iv = leg_iv(spot, strike, iv_val, iv_skew, iv_curvature)
                 opt_price = bs_price(spot, strike, T, risk_free_rate, adj_iv, leg_type)
@@ -470,6 +485,7 @@ def run_options_backtest(
                         entry_price=opt_price,
                         entry_date=date_str,
                         underlying_code=underlying,
+                        calendar_tz=calendar_tz,
                     ))
 
                     trade_records.append({
@@ -538,6 +554,7 @@ def run_options_backtest(
                                 entry_price=matched.entry_price,
                                 entry_date=matched.entry_date,
                                 underlying_code=matched.underlying_code,
+                                calendar_tz=matched.calendar_tz,
                             )
 
         # 4. Handle expiry. Runs after signal execution so a fill dated the

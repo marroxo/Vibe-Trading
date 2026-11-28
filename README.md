@@ -261,6 +261,8 @@ Yahoo `4H`/`4h` requests aggregate hourly OHLCV into four-hour bars aligned to U
 
 Risk X-Ray includes `risk_contributions` in the Agent tool response and saved JSON/Markdown reports. Components use `weight × Cov(asset return, portfolio return) / portfolio volatility`, with the same sample and annualization as total volatility. Each `assets` row names its `symbol`; `risk_contribution` is annualized decimal volatility and `contribution_pct` is in percentage points. They add up to total volatility, not portfolio return. A hedge can have a negative risk share, and another holding can exceed 100%; shares are unavailable for zero volatility or an insufficient sample. This is a historical weighted-basket diagnosis, not realized PnL attribution or a forecast.
 
+Options backtests interpret expiry dates without a timezone in the underlying's local calendar, including across daylight-saving changes. Expiries with an explicit timezone retain their instant.
+
 ### Accounts and trading
 
 | Feature | What you can do |
